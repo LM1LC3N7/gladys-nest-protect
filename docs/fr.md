@@ -1,67 +1,164 @@
-# Template de démonstration
+# Nest Protect pour Gladys Assistant
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Affiche dans Gladys, **en lecture seule**, les détecteurs de fumée et de
+monoxyde de carbone **Google Nest Protect** de votre compte Google : fumée,
+CO, batterie, état en ligne, auto-test, veilleuse, et deux déclencheurs de
+scène, « Fumée détectée » et « CO détecté ».
+
+> **Ce n'est pas un système d'alarme certifié. Ne comptez jamais sur cette
+> intégration pour la sécurité des personnes** : une alerte peut arriver en
+> retard, ou jamais (Google, Internet, Gladys ou l'intégration en panne).
+> Gardez l'application Nest et ses notifications, et les sirènes des
+> détecteurs eux-mêmes. Utilisez Gladys en plus, jamais à la place.
+
+> **API non officielle, jamais testée avec un vrai compte.** Google ne
+> propose aucune API pour les Nest Protect (l'API officielle « SDM », celle
+> de l'intégration Google Nest, ne les couvre pas). L'intégration utilise
+> l'API de l'application web Nest (home.nest.com), que Google ne documente
+> pas et peut changer ou couper à tout moment. Elle a été écrite à partir de
+> l'intégration Home Assistant ha-nest-protect et testée seulement avec des
+> réponses inventées. Sans lien avec Google ni Nest.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Un appareil Gladys par Nest Protect, nommé d'après sa pièce (ex. « Nest
+Protect (Cuisine) »). Toutes les fonctionnalités sont en lecture seule :
+l'intégration n'envoie **aucune commande** aux détecteurs (pas de test, pas
+de mise en sourdine, pas de réglage de la veilleuse).
 
-## Configuration
+| Fonctionnalité                      | Valeurs                                                                         |
+| ----------------------------------- | ------------------------------------------------------------------------------- |
+| Fumée                               | 1 = fumée signalée (alerte, urgence ou test), 0 = rien                          |
+| Monoxyde de carbone (CO)            | 1 = CO signalé (alerte, urgence ou test), 0 = rien                              |
+| Alarme en sourdine                  | 1 = l'alarme a été mise en sourdine sur le détecteur                            |
+| Batterie                            | % estimé d'après la tension des piles (courbe de ha-nest-protect)               |
+| Pile à remplacer                    | 1 = le détecteur demande de changer les piles                                   |
+| En ligne (1 = oui)                  | quand Nest le donne                                                             |
+| Auto-test réussi (1 = oui)          | 0 dès qu'un composant a échoué à son dernier test (fumée, CO, Wi-Fi, LED, etc.) |
+| Jours depuis le dernier test manuel | nombre de jours                                                                 |
+| Veilleuse activée (1 = oui)         | réglage de la veilleuse, en lecture                                             |
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+Une fonctionnalité n'apparaît que si le détecteur donne la valeur
+correspondante (fumée et CO toujours).
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+## Mise en place
 
-## Actions
+1. Dans Gladys, installez l'intégration **Nest Protect** depuis le store.
+2. Récupérez l'**issue_token** et les **cookies** de votre compte Google
+   (ci-dessous) et collez-les dans la configuration, puis enregistrez.
+3. Ouvrez l'onglet **Découverte** et ajoutez les détecteurs.
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+### Récupérer l'issue_token et les cookies
 
-## Scènes
+**Cette méthode est fragile** : elle reprend la connexion de votre
+navigateur au site Nest. Si vous vous déconnectez de home.nest.com, changez
+votre mot de passe Google ou si Google invalide la session, il faudra
+recommencer. Google peut aussi la casser à tout moment.
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+Dans Chrome ou Edge, **fenêtre normale** (pas de navigation privée, qui
+bloque les cookies tiers) :
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+1. Autorisez les cookies tiers pour `home.nest.com` (sinon le site tourne en
+   boucle) : Chrome, Paramètres → Confidentialité et sécurité → Cookies
+   tiers ; Edge, Paramètres → Cookies et autorisations de site.
+2. Ouvrez les outils de développement (F12), onglet **Réseau** (Network),
+   cochez **Conserver le journal** (Preserve log).
+3. Dans le filtre, tapez `issueToken`.
+4. Allez sur [home.nest.com](https://home.nest.com) et cliquez sur **Sign in
+   with Google** ; connectez-vous.
+5. Un appel qui commence par `iframerpc` apparaît : cliquez dessus. Dans
+   **En-têtes** (Headers), copiez toute la **Request URL** (elle commence par
+   `https://accounts.google.com/o/oauth2/iframerpc?action=issueToken`) : c'est
+   l'**issue_token**.
+6. Dans le filtre, tapez `oauth2/iframe`. Cliquez sur le dernier appel
+   `iframe`. Dans **En-têtes de requête** (Request Headers), copiez toute la
+   valeur de **cookie** (la longue suite `NOM=valeur; …`, sans le mot
+   `cookie:`) : ce sont les **cookies**.
+7. Ne vous déconnectez pas de home.nest.com : fermez simplement l'onglet.
 
-## Tableau de bord
+(Méthode de [ha-nest-protect](https://github.com/iMicknl/ha-nest-protect),
+elle-même reprise de homebridge-nest. L'extension Chrome de ha-nest-protect
+donne un « code » combiné que cette intégration n'accepte pas : collez les
+deux valeurs séparément.)
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+Les deux champs sont des champs `secret` : Gladys les garde dans sa base (en
+clair, comme toute valeur de configuration, et dans ses sauvegardes), ne les
+réaffiche jamais, et l'intégration ne les envoie qu'à `accounts.google.com`.
+Avant tout envoi, l'intégration vérifie que l'issue_token est bien une
+adresse `https://accounts.google.com/o/oauth2/iframerpc` : sinon rien n'est
+envoyé. Quand Google renouvelle certains cookies, l'intégration met à jour
+le champ « Cookies Google » de la configuration (comme ha-nest-protect), pour
+qu'un redémarrage reprenne les bons.
 
-## Dépannage
+Ces valeurs donnent accès à votre compte Google : ne les partagez jamais,
+pas même dans un message d'aide ou un ticket.
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+## Déclencheurs de scène
+
+- **Fumée détectée (Nest Protect)** et **CO détecté (Nest Protect)** : une
+  fois quand la valeur passe à 1 (y compris pour un test du détecteur), pas
+  de nouvel événement tant qu'elle reste à 1, rien quand elle revient à 0.
+  Au démarrage de l'intégration, une alarme déjà en cours déclenche une fois.
+- Filtre : le détecteur (facultatif). Variables : `level` (`warning`,
+  `emergency`, `testing`, `unknown`, d'après ha-nest-protect) et `room` (la
+  pièce).
+- Rappel : **pas un système d'alarme certifié**. Une scène peut prévenir,
+  allumer des lumières ou couper une ventilation, mais ne remplace ni
+  l'alarme du détecteur ni l'appel aux secours.
+
+## Rafraîchissement
+
+Comme l'application web Nest, l'intégration fait une lecture complète au
+démarrage puis garde une requête ouverte (« long polling ») à laquelle Nest
+répond dès qu'un détecteur change, au plus tard après une dizaine de
+minutes ; elle en relance alors une autre (au plus une toutes les 2
+secondes ; une minute de pause si Nest répond vide trois fois de suite tout
+de suite). Une lecture complète est refaite toutes les heures.
+
+## En cas de problème
+
+- **Google a refusé les cookies** (déconnexion du navigateur, mot de passe
+  changé, expiration) : l'intégration s'arrête et attend, même après un
+  redémarrage, sans jamais redemander à Google. Récupérez un nouvel
+  issue_token et de nouveaux cookies, enregistrez (ou cliquez sur _Tester la
+  connexion_).
+- **Nest a refusé la session** : la session Nest est refaite une fois ;
+  refusée à nouveau tout de suite, l'intégration se met en pause et réessaie
+  après 1 heure, 6 heures, puis toutes les 24 heures (gardé après un
+  redémarrage). _Tester la connexion_ réessaie tout de suite.
+- **Trop de requêtes (429)** : une pause de 1 minute à 6 heures (le
+  `Retry-After` de Nest, 10 minutes sans lui), gardée après un redémarrage.
+- **Nest injoignable (réseau, 5xx)** : nouvel essai après 15 secondes, puis
+  1, 2, 5, 10 et 15 minutes ; les cartes des détecteurs passent en
+  « injoignable » dès le deuxième échec de suite. Un 502/504 de la requête
+  ouverte : 2 minutes de pause (comme ha-nest-protect).
+- Un détecteur hors ligne pour Nest est marqué « injoignable » sur sa carte.
+- Pendant une panne, **les valeurs affichées peuvent être anciennes** : une
+  fumée apparue pendant la panne n'est vue qu'au retour de la connexion.
+
+## Limites
+
+- API non officielle, méthode de connexion fragile : Google peut la
+  changer ou la bloquer à tout moment.
+- Lecture seule : ni test, ni sourdine, ni réglage depuis Gladys
+  (ha-nest-protect sait régler la veilleuse, non repris ici).
+- Pas la chaleur (`heat_status`), ni la date de remplacement, ni les
+  capteurs de température Nest, ni les serrures Nest x Yale.
+- Seulement les comptes Google (pas les anciens comptes Nest).
+- Jamais testée avec un vrai compte : merci de signaler ce que vous voyez
+  sur le [dépôt GitHub](https://github.com/LM1LC3N7/gladys-nest-protect/issues)
+  (sans jamais coller l'issue_token ni les cookies).
+
+## Vie privée
+
+L'intégration garde dans `/data/nest-protect-state.json` (lisible par son
+seul conteneur) : la session Nest (son jeton d'accès, l'identifiant
+utilisateur Nest, sa fin et l'adresse du serveur de mises à jour), le seul
+jeton nécessaire pour ne pas redemander à Google à chaque redémarrage ; une
+empreinte salée de l'issue_token (le compte de cette session) ; un arrêt
+(cookies refusés, session refusée et son prochain essai) lié à une empreinte
+salée de l'issue_token et des cookies ; la fin d'une pause 429. **Jamais**
+l'issue_token, les cookies, ni votre e-mail. Les journaux n'en contiennent
+aucun. Rien n'est envoyé ailleurs qu'à Google (`accounts.google.com`,
+`nestauthproxyservice-pa.googleapis.com`) et Nest (`home.nest.com` et ses
+serveurs `*.nest.com`).

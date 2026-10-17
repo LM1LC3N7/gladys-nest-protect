@@ -1,177 +1,201 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Nest Protect",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Google Nest Protect smoke and CO alarms, read only (unofficial API). Not a certified alarm.",
+    "fr": "Détecteurs Nest Protect (fumée, CO) en lecture seule, API non officielle. Pas une alarme certifiée."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-nest-protect:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-nest-protect/main/cover.png",
+  "categories": ["security"],
+  "transports": ["cloud"],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": {
+        "en": "Your Google account (Nest)",
+        "fr": "Votre compte Google (Nest)"
+      },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Shows your Google Nest Protect in Gladys, read only: smoke, carbon monoxide (CO), battery, online state, self-test, night light, and the \"Smoke detected\" and \"CO detected\" scene triggers. NOT A CERTIFIED ALARM SYSTEM: never rely on it for the safety of people, keep the Nest app and the detectors' own sirens. Google gives no API for the Protect: the integration uses the unofficial API of the Nest web app, signed in with the issue_token and the cookies of a browser signed in to home.nest.com (see the guide). This method is fragile: Google can break it at any time. Never tested with a real account. Not affiliated with Google or Nest.",
+        "fr": "Affiche vos Google Nest Protect dans Gladys, en lecture seule : fumée, monoxyde de carbone (CO), batterie, état en ligne, auto-test, veilleuse, et les déclencheurs de scène « Fumée détectée » et « CO détecté ». CE N'EST PAS UN SYSTÈME D'ALARME CERTIFIÉ : ne comptez jamais dessus pour la sécurité des personnes, gardez l'application Nest et les sirènes des détecteurs. Google ne donne pas d'API pour les Protect : l'intégration utilise l'API non officielle de l'application web Nest, connectée avec l'issue_token et les cookies d'un navigateur connecté à home.nest.com (voir le guide). Cette méthode est fragile : Google peut la casser à tout moment. Jamais testée avec un vrai compte. Sans lien avec Google ni Nest."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://github.com/LM1LC3N7/gladys-nest-protect/blob/main/docs/fr.md",
+          "label": {
+            "en": "Guide (French)",
+            "fr": "Guide (français)"
+          }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-nest-protect/blob/main/docs/en.md",
+          "label": {
+            "en": "Guide (English)",
+            "fr": "Guide (anglais)"
+          }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
+      "key": "issue_token",
+      "type": "secret",
+      "label": {
+        "en": "issue_token (Google address)",
+        "fr": "issue_token (adresse Google)"
       },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
-      "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
+      "description": {
+        "en": "The whole Request URL of the iframerpc call, starting with https://accounts.google.com/o/oauth2/iframerpc?action=issueToken (see the guide). Kept by Gladys in its database, never shown again, sent only to accounts.google.com.",
+        "fr": "Toute la Request URL de l'appel iframerpc, qui commence par https://accounts.google.com/o/oauth2/iframerpc?action=issueToken (voir le guide). Gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement à accounts.google.com."
+      },
+      "placeholder": {
+        "en": "https://accounts.google.com/o/oauth2/iframerpc?action=issueToken&…",
+        "fr": "https://accounts.google.com/o/oauth2/iframerpc?action=issueToken&…"
+      },
+      "required": true
     },
     {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
+      "key": "cookies",
+      "type": "secret",
+      "label": {
+        "en": "Google cookies",
+        "fr": "Cookies Google"
       },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
+      "description": {
+        "en": "The whole value of the \"cookie\" request header of the oauth2/iframe call (see the guide). Kept by Gladys in its database, never shown again, sent only to accounts.google.com. Updated by the integration when Google renews some of them.",
+        "fr": "Toute la valeur de l'en-tête de requête « cookie » de l'appel oauth2/iframe (voir le guide). Gardés par Gladys dans sa base, jamais réaffichés, envoyés seulement à accounts.google.com. Mis à jour par l'intégration quand Google en renouvelle."
+      },
+      "required": true
     },
     {
-      "key": "unit",
+      "key": "language",
       "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
-      "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
-    },
-    {
-      "key": "poll_frequency",
-      "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
+      "label": {
+        "en": "Language of the feature names",
+        "fr": "Langue des noms des fonctionnalités"
+      },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "Used for the feature names of the detectors added from now on.",
+        "fr": "Sert aux noms des fonctionnalités des détecteurs ajoutés désormais."
       },
       "required": false,
-      "default": 300,
-      "min": 60,
-      "max": 3600
+      "default": "fr",
+      "options": [
+        {
+          "value": "fr",
+          "label": {
+            "en": "French",
+            "fr": "Français"
+          }
+        },
+        {
+          "value": "en",
+          "label": {
+            "en": "English",
+            "fr": "Anglais"
+          }
+        }
+      ]
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
-      "timeout_seconds": 30
-    },
-    {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
+      "key": "test_connection",
+      "label": {
+        "en": "Test the connection",
+        "fr": "Tester la connexion"
+      },
+      "description": {
+        "en": "Signs in again if needed and reads the detectors once. Also the way to retry after a refusal.",
+        "fr": "Se reconnecte si besoin et lit une fois les détecteurs. C'est aussi ainsi qu'on réessaie après un refus."
+      },
+      "timeout_seconds": 60
     }
   ],
   "scene_triggers": [
     {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
+      "key": "smoke_detected",
+      "label": {
+        "en": "Smoke detected (Nest Protect)",
+        "fr": "Fumée détectée (Nest Protect)"
+      },
       "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
+        "en": "A Nest Protect reports smoke (warning, emergency, or a test). Not a certified alarm: may come late or never.",
+        "fr": "Un Nest Protect signale de la fumée (alerte, urgence, ou un test). Pas une alarme certifiée : peut arriver en retard ou jamais."
       },
       "fields": [
         {
           "key": "device",
           "type": "select",
           "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
-          "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
-          ]
+          "label": {
+            "en": "Detector",
+            "fr": "Détecteur"
+          }
         }
       ],
       "variables": [
         {
-          "key": "target",
+          "key": "level",
           "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
+          "label": {
+            "en": "Level (warning, emergency, testing)",
+            "fr": "Niveau (warning, emergency, testing)"
+          }
+        },
+        {
+          "key": "room",
+          "type": "string",
+          "label": {
+            "en": "Room",
+            "fr": "Pièce"
+          }
         }
       ]
-    }
-  ],
-  "scene_actions": [
+    },
     {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
+      "key": "co_detected",
+      "label": {
+        "en": "CO detected (Nest Protect)",
+        "fr": "CO détecté (Nest Protect)"
       },
-      "timeout_seconds": 15,
+      "description": {
+        "en": "A Nest Protect reports carbon monoxide (warning, emergency, or a test). Not a certified alarm: may come late or never.",
+        "fr": "Un Nest Protect signale du monoxyde de carbone (alerte, urgence, ou un test). Pas une alarme certifiée : peut arriver en retard ou jamais."
+      },
       "fields": [
         {
           "key": "device",
           "type": "select",
           "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
+          "label": {
+            "en": "Detector",
+            "fr": "Détecteur"
+          }
         }
       ],
-      "outputs": [
+      "variables": [
         {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
+          "key": "level",
+          "type": "string",
+          "label": {
+            "en": "Level (warning, emergency, testing)",
+            "fr": "Niveau (warning, emergency, testing)"
+          }
+        },
+        {
+          "key": "room",
+          "type": "string",
+          "label": {
+            "en": "Room",
+            "fr": "Pièce"
+          }
         }
       ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
     }
   ]
 }

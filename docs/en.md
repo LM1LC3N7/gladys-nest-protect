@@ -1,61 +1,159 @@
-# Demo Devices Template
+# Nest Protect for Gladys Assistant
 
-This is the user documentation of the integration. Gladys re-hosts this file
-and shows a permanent **Documentation** link to it in the Configuration screen
-(in the user's language, with English as the fallback) — it is when
-configuring that the user needs it most. Keep the short onboarding hints in
-the `section` blocks of the manifest `config_schema`; put the long
-step-by-step (screenshots, troubleshooting…) here.
+Shows in Gladys, **read only**, the **Google Nest Protect** smoke and carbon
+monoxide alarms of your Google account: smoke, CO, battery, online state,
+self-test, night light, and two scene triggers, "Smoke detected" and "CO
+detected".
+
+> **This is not a certified alarm system. Never rely on this integration
+> for the safety of people**: an alert may come late, or never (Google, the
+> Internet, Gladys or the integration down). Keep the Nest app and its
+> notifications, and the detectors' own sirens. Use Gladys on top, never
+> instead.
+
+> **Unofficial API, never tested with a real account.** Google offers no
+> API for the Nest Protect (the official "SDM" API, the one of the Google
+> Nest integration, does not cover them). The integration uses the API of
+> the Nest web app (home.nest.com), which Google does not document and can
+> change or shut down at any time. It was written from the Home Assistant
+> integration ha-nest-protect and tested only against made-up answers. Not
+> affiliated with Google or Nest.
 
 ## What you get
 
-Six demo devices show up after installation: a weather station (real data
-from Open-Meteo), a switch, a dimmable light, a smart plug with power
-metering, a motion sensor and a camera.
+One Gladys device per Nest Protect, named after its room (e.g. "Nest
+Protect (Kitchen)"). Every feature is read only: the integration sends **no
+command** to the detectors (no test, no hush, no night light setting).
 
-## Configuration
+| Feature                         | Values                                                                   |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| Smoke                           | 1 = smoke reported (warning, emergency or test), 0 = nothing             |
+| Carbon monoxide (CO)            | 1 = CO reported (warning, emergency or test), 0 = nothing                |
+| Alarm hushed                    | 1 = the alarm was hushed on the detector                                 |
+| Battery                         | % estimated from the battery voltage (the curve of ha-nest-protect)      |
+| Battery to replace              | 1 = the detector asks for new batteries                                  |
+| Online (1 = yes)                | when Nest gives it                                                       |
+| Self-test passed (1 = yes)      | 0 as soon as a component failed its last test (smoke, CO, Wi-Fi, LED...) |
+| Days since the last manual test | a number of days                                                         |
+| Night light on (1 = yes)        | the night light setting, read only                                       |
 
-1. Open the **Configuration** tab of the integration.
-2. Set the **latitude** and **longitude** the demo weather station should
-   observe (they default to Paris), and pick your temperature unit.
-   The **refresh interval** sets how often the weather station and the
-   plug's power are read: every 5 minutes by default, every minute at most.
-3. Save: the devices appear in the **Discovery** tab, ready to be added.
+A feature only shows when the detector gives its value (smoke and CO
+always).
 
-The **Prefer the local connection** toggle drives the demo plug: it reports
-the channel it actually uses as a badge (local or cloud), with an orange dot
-when it runs degraded (local refused, cloud fallback).
+## Setup
 
-## Actions
+1. In Gladys, install the **Nest Protect** integration from the store.
+2. Get the **issue_token** and the **cookies** of your Google account
+   (below), paste them in the configuration, and save.
+3. Open the **Discovery** tab and add the detectors.
 
-- **Test the weather provider** — performs a live request to Open-Meteo and
-  shows the current temperature and humidity under the button.
-- **Identify a device** — pick one of your devices in the list and it will
-  signal itself (the demo light "blinks" in the logs).
+### Getting the issue_token and the cookies
 
-## Scenes
+**This method is fragile**: it reuses your browser's sign-in to the Nest
+website. If you sign out of home.nest.com, change your Google password, or
+Google ends the session, you will have to do it again. Google can also break
+it at any time.
 
-The integration adds its own cards to the scene editor (Gladys 5.1 or
-later), under the **Integrations** category:
+In Chrome or Edge, **a normal window** (not private browsing, which blocks
+third-party cookies):
 
-- **Motion detected** (trigger) — starts the scene when a demo motion sensor
-  sees something move. Optionally pick the sensor and what moved (person,
-  animal); left empty, any detection matches. The following actions can
-  read what moved with `{{triggerEvent.data.target}}`.
-- **Identify a device** (action) — makes the chosen device signal itself.
-  It returns whether the device could signal itself, so the following
-  actions can depend on it.
+1. Allow third-party cookies for `home.nest.com` (otherwise the site loops):
+   Chrome, Settings → Privacy and security → Third-party cookies; Edge,
+   Settings → Cookies and site permissions.
+2. Open the developer tools (F12), **Network** tab, tick **Preserve log**.
+3. In the filter, type `issueToken`.
+4. Go to [home.nest.com](https://home.nest.com) and click **Sign in with
+   Google**; sign in.
+5. A call starting with `iframerpc` shows up: click it. Under **Headers**,
+   copy the whole **Request URL** (it starts with
+   `https://accounts.google.com/o/oauth2/iframerpc?action=issueToken`): this
+   is the **issue_token**.
+6. In the filter, type `oauth2/iframe`. Click the last `iframe` call. Under
+   **Request Headers**, copy the whole value of **cookie** (the long
+   `NAME=value; …` string, without the word `cookie:`): these are the
+   **cookies**.
+7. Do not sign out of home.nest.com: just close the tab.
 
-## Dashboard
+(The method of [ha-nest-protect](https://github.com/iMicknl/ha-nest-protect),
+itself taken from homebridge-nest. The Chrome extension of ha-nest-protect
+gives a combined "code" this integration does not accept: paste the two
+values separately.)
 
-Add the **Demo status** widget to a dashboard: it shows the live
-temperature of the weather station and the power of the office plug, the
-connection the plug currently uses (orange when degraded) and the observed
-location. Its **Identify the light** button makes the demo light signal
-itself.
+Both fields are `secret` fields: Gladys keeps them in its database (in
+plain text, like every configuration value, and in its backups), never shows
+them again, and the integration sends them only to `accounts.google.com`.
+Before anything is sent, the integration checks that the issue_token is a
+`https://accounts.google.com/o/oauth2/iframerpc` address: otherwise nothing
+is sent. When Google renews some cookies, the integration updates the
+"Google cookies" field of the configuration (as ha-nest-protect does), so a
+restart uses the right ones.
+
+These values give access to your Google account: never share them, not even
+in a help request or an issue.
+
+## Scene triggers
+
+- **Smoke detected (Nest Protect)** and **CO detected (Nest Protect)**: once
+  when the value goes to 1 (a test of the detector included), no new event
+  while it stays 1, nothing when it goes back to 0. When the integration
+  starts, an alarm already on fires once.
+- Filter: the detector (optional). Variables: `level` (`warning`,
+  `emergency`, `testing`, `unknown`, after ha-nest-protect) and `room`.
+- Reminder: **not a certified alarm system**. A scene can warn you, turn
+  lights on or stop a ventilation, but it replaces neither the detector's
+  alarm nor a call to the emergency services.
+
+## Refresh
+
+Like the Nest web app, the integration reads everything at start, then keeps
+one request open ("long polling") that Nest answers as soon as a detector
+changes, at the latest after about ten minutes; it then sends another one
+(at most one every 2 seconds; a one-minute pause when Nest answers empty
+three times in a row at once). A full read is done again every hour.
 
 ## Troubleshooting
 
-The integration logs everything it does: check the integration logs from the
-Gladys UI (or `docker logs` on the host) with `LOG_LEVEL=debug` for the full
-detail.
+- **Google refused the cookies** (signed out of the browser, password
+  changed, expired): the integration stops and waits, even after a restart,
+  never asking Google again by itself. Get a new issue_token and new
+  cookies, save (or click _Test the connection_).
+- **Nest refused the session**: the Nest session is made again once;
+  refused again at once, the integration pauses and tries again after 1
+  hour, 6 hours, then every 24 hours (kept across restarts). _Test the
+  connection_ tries again at once.
+- **Too many requests (429)**: a pause of 1 minute to 6 hours (Nest's
+  `Retry-After`, 10 minutes without it), kept across restarts.
+- **Nest unreachable (network, 5xx)**: a new try after 15 seconds, then 1,
+  2, 5, 10 and 15 minutes; the detectors' cards turn "unreachable" from the
+  second failure in a row. A 502/504 of the open request: a 2-minute pause
+  (as ha-nest-protect).
+- A detector offline for Nest is marked "unreachable" on its card.
+- During an outage, **the values shown may be old**: smoke that appeared
+  during the outage is only seen when the connection is back.
+
+## Limits
+
+- Unofficial API, fragile sign-in method: Google can change or block it at
+  any time.
+- Read only: no test, no hush, no setting from Gladys (ha-nest-protect can
+  set the night light, not taken here).
+- No heat (`heat_status`), no replacement date, no Nest temperature
+  sensors, no Nest x Yale locks.
+- Google accounts only (no legacy Nest accounts).
+- Never tested with a real account: please report what you see on the
+  [GitHub repository](https://github.com/LM1LC3N7/gladys-nest-protect/issues)
+  (never paste the issue_token or the cookies).
+
+## Privacy
+
+The integration keeps in `/data/nest-protect-state.json` (readable by its
+own container only): the Nest session (its access token, the Nest user id,
+its end, and the address of the update server), the one token needed so
+Google is not asked again at every restart; a salted fingerprint of the
+issue_token (the account of that session); a stop (cookies refused, session
+refused and its next try) tied to a salted fingerprint of the issue_token
+and the cookies; the end of a 429 pause. **Never** the issue_token, the
+cookies, nor your e-mail. The logs hold none of them. Nothing is sent
+anywhere but to Google (`accounts.google.com`,
+`nestauthproxyservice-pa.googleapis.com`) and Nest (`home.nest.com` and its
+`*.nest.com` servers).
