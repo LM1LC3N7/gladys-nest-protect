@@ -62,5 +62,8 @@ the notes of the version's GitHub Release.
 - Docs: the Nest session token kept in `/data` gives access to the whole
   Nest account; an alarm rising and falling during an outage is not seen;
   an event may come late.
+- New credentials saved by the user are tried at once, even during an error
+  pause kept in `/data` (a 429 pause still holds); scene events sent again
+  count in the 60-a-minute window.
 
 [Unreleased]: https://github.com/LM1LC3N7/gladys-nest-protect/commits/main

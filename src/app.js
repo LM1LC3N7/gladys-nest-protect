@@ -119,7 +119,8 @@ export class NestProtectApp {
 
   // --- Lifecycle -------------------------------------------------------------
 
-  async start(raw = {}) {
+  /** `newCredentials`: saved by the user, tried at once (only a 429 pause holds). */
+  async start(raw = {}, { newCredentials = false } = {}) {
     this.stop();
     await this.running;
     const previousToken = this.config.issueToken;
@@ -137,8 +138,8 @@ export class NestProtectApp {
       this.pausedUntil = this.memory.rateLimitedUntil;
       this.pauseKind = 'rate';
     }
-    // So does the pause of an error: a restart never reads sooner.
-    if (this.memory.pausedUntil > Math.max(this.now(), this.pausedUntil)) {
+    // So does the pause of an error: a restart never reads sooner (new credentials do).
+    if (!newCredentials && this.memory.pausedUntil > Math.max(this.now(), this.pausedUntil)) {
       this.pausedUntil = this.memory.pausedUntil;
       this.pauseKind = 'backoff';
     }
@@ -267,7 +268,7 @@ export class NestProtectApp {
       // pending): not new credentials, the rotated ones stay.
       next.cookies = previous.cookies;
     } else {
-      return this.start(raw);
+      return this.start(raw, { newCredentials: true });
     }
     this.config = next;
     if (next.language !== previous.language) {
@@ -781,12 +782,10 @@ export class NestProtectApp {
 
   async sceneEvent(key, data, origin) {
     const now = this.now();
-    this.sceneWindow = this.sceneWindow.filter((t) => now - t < MINUTE);
-    if (this.sceneWindow.length >= LIMITS.sceneEventsPerMinute) {
+    if (!this.takeEventSlot()) {
       this.logger.warn(`Too many scene events this minute: ${key} dropped`);
       return;
     }
-    this.sceneWindow.push(now);
     this.logger.info(`Scene event ${key} (${data.level})`);
     try {
       await this.gladys.publishSceneEvent(key, data);
@@ -795,6 +794,17 @@ export class NestProtectApp {
       this.pendingEvents.push({ key, data, at: now, ...origin });
       this.logger.warn(`Scene event ${key} not sent, kept for later: ${err.message}`);
     }
+  }
+
+  /** One place in the window of scene events (60 a minute, replays included). */
+  takeEventSlot() {
+    const now = this.now();
+    this.sceneWindow = this.sceneWindow.filter((t) => now - t < MINUTE);
+    if (this.sceneWindow.length >= LIMITS.sceneEventsPerMinute) {
+      return false;
+    }
+    this.sceneWindow.push(now);
+    return true;
   }
 
   /** The scene events Gladys did not take, sent again while their alarm lasts (15 min at most). */
@@ -812,6 +822,11 @@ export class NestProtectApp {
         !detector ||
         READINGS[event.reading](detector) !== 1
       ) {
+        continue;
+      }
+      if (!this.takeEventSlot()) {
+        // Over the window: kept for the next run.
+        this.pendingEvents.push(event);
         continue;
       }
       try {

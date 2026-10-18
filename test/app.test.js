@@ -750,3 +750,36 @@ test('another issue_token forgets the devices of the previous account', async (t
   });
   assert.equal(app.known.size, 0);
 });
+
+test('new cookies saved during a 15-minute error pause are tried at once', async (t) => {
+  const store = memoryStore({ pausedUntil: NOW + 15 * MINUTE });
+  const { gladys, server, advance } = await setup(t, { store, create: false });
+  assert.equal(server.requests.length, 0, 'a restart keeps the pause');
+  await gladys.fake.configUpdated({ ...CONFIG, cookies: `${COOKIES}; NID=new` });
+  await advance(SECOND);
+  assert.equal(server.google().length, 1);
+  assert.equal(server.launches().length, 1);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+});
+
+test('scene events sent again count in the 60-a-minute window', async (t) => {
+  const { gladys, app, server, advance } = await setup(t);
+  const publish = gladys.publishSceneEvent.bind(gladys);
+  let failing = true;
+  gladys.publishSceneEvent = (key, data) =>
+    failing ? Promise.reject(new Error('Gladys busy')) : publish(key, data);
+  server.change('topaz.DEV1', { co_status: 2 });
+  await advance(3 * SECOND);
+  assert.equal(app.pendingEvents.length, 1);
+  failing = false;
+  app.sceneWindow = Array.from({ length: 60 }, () => Date.now());
+  server.answerPolls({ objects: [] });
+  await advance(3 * SECOND);
+  assert.equal(gladys.fake.sceneEvents.length, 0, 'the window is full');
+  assert.equal(app.pendingEvents.length, 1, 'kept for later');
+  t.mock.timers.setTime(Date.now() + MINUTE);
+  server.answerPolls({ objects: [] });
+  await advance(3 * SECOND);
+  assert.equal(gladys.fake.sceneEvents.length, 1);
+  assert.equal(gladys.fake.sceneEvents[0].data.delayed, true);
+});

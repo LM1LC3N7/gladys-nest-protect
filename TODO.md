@@ -85,11 +85,12 @@ up to date at the end of every milestone.
 - **Smoke / CO = 1 for any status but 0** (ha-nest-protect's binary
   sensors), "testing" included: a test shows and fires the scene trigger, as
   documented. An unknown or missing status publishes nothing (never 0).
-- **Scene triggers**: `smoke_detected`, `co_detected`, once per rise to 1
-  (from 0 or from unknown: the first read after a start that finds an alarm
-  fires once, a missed alarm being worse than a repeated one), never on the
-  way back, never while it stays 1; `device` filter, `level` and `room`
-  variables; at most 60 events a minute.
+- **Scene triggers**: `smoke_detected`, `co_detected`, one event at every
+  rise of the level (review 6 below; the first read after a start that finds
+  an alarm fires once, a missed alarm being worse than a repeated one),
+  never on the way down; `device` and `level` filters, `level`, `room` and
+  `delayed` variables; at most 60 events a minute, replays included
+  (review 5).
 - **Credentials**: two `secret` fields (`issue_token`, `cookies`), as
   ha-nest-protect's manual method; the extension's combined code is not
   accepted (later). The issue_token must be an `https://accounts.google.com/o/oauth2/iframerpc`
@@ -99,14 +100,17 @@ up to date at the end of every milestone.
   method of ha-nest-protect (dead since Google removed it) is not ported.
 - **Rotated cookies**: merged in memory (pynest `merge_cookies`) and written
   back to the `cookies` field with `gladys.setConfig` (ha-nest-protect
-  updates its config entry the same way), never to `/data`; the echoed
-  configuration does not restart (same cookies). A failed `setConfig` is
-  only logged (without the value).
+  updates its config entry the same way), never to `/data`; tied to the
+  request that got them, saved one at a time, a failed save tried again
+  (review 1, 2 below). Accepted limit: a `setConfig` already sent when the
+  user saves new cookies (a window of a few milliseconds) can still land
+  after them in Gladys; the integration keeps using the user's cookies, and
+  the next configuration it receives settles it.
 - **/data** (the brief: "only the token strictly needed"): the Nest session
   (access token, user id, end, transport URL) so a restart does not ask
   Google again (ha-nest-protect's `NestSessionManager` keeps it too), tied
   to a salted fingerprint of the issue_token; the stop tied to a salted
-  fingerprint of the issue_token and the cookies; the 429 end. Never the
+  fingerprint of the issue_token and the cookies; the end of a 429 pause and of an error pause (review 14). Never the
   cookies, the issue_token, the Google token, the JWT, nor the e-mail
   (`/session` returns it: dropped).
 - **Refusals** (lesson: never a loop): Google refusing the cookies
@@ -197,7 +201,10 @@ up to date at the end of every milestone.
   it.
 - **Persisted pause** (review 14): the end of any error pause (`pausedUntil`)
   is kept in `/data` (capped at 6 h when read back), cleared by a success
-  and by the button.
+  and by the button. New credentials saved by the user ignore it (only a
+  429 pause holds for them): they are tried at once.
+- **Replays in the window** (approval): sent-again scene events count in
+  the 60-events-a-minute window; one over it stays pending for later.
 - **Another account** (review 15): a new issue_token empties the published
   devices list (`known`).
 - **Not checked here (PIPELINE step 1, main session)**: duplicates in the
