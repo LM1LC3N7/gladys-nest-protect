@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-18
+
 ### Added
 
 - Google Nest Protect smoke and CO alarms, read only, through the unofficial
@@ -66,4 +68,5 @@ the notes of the version's GitHub Release.
   pause kept in `/data` (a 429 pause still holds); scene events sent again
   count in the 60-a-minute window.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-nest-protect/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-nest-protect/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-nest-protect/releases/tag/v0.1.1
