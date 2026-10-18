@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeCookies, parseExpiry, trustedTransport } from '../src/client.js';
+import { NestClient, mergeCookies, parseExpiry, trustedTransport } from '../src/client.js';
 import { configProblem, normalizeConfig, validCookies, validIssueToken } from '../src/config.js';
 import {
   READINGS,
@@ -193,4 +193,57 @@ test('the persisted state is repaired and capped', () => {
     normalizeMemory({ block: { kind: 'other', fingerprint: '0'.repeat(16) } }).block,
     null,
   );
+});
+
+test('stricter checks: the iframerpc path and action, visible ASCII cookies', () => {
+  assert.equal(
+    validIssueToken('https://accounts.google.com/o/oauth2/iframerpc/x?action=issueToken'),
+    false,
+  );
+  assert.equal(
+    validIssueToken(
+      'https://accounts.google.com/o/oauth2/iframerpc?action=issueTokenX&a=action=issueToken',
+    ),
+    false,
+  );
+  assert.equal(validCookies(`${COOKIES}; X=é`), false);
+  assert.equal(validCookies(`${COOKIES}\tX=1`), false);
+});
+
+test('a Set-Cookie with Max-Age <= 0 or an Expires already past is not taken', () => {
+  const now = Date.UTC(2026, 9, 18);
+  assert.equal(
+    mergeCookies(
+      'A=1; B=2',
+      [
+        'A=9; Max-Age=0',
+        'B=9; Expires=Thu, 01 Jan 2026 00:00:00 GMT',
+        'C=3; Max-Age=3600',
+        'D=4; Expires=Fri, 01 Jan 2027 00:00:00 GMT',
+      ],
+      now,
+    ),
+    'A=1; B=2; C=3; D=4',
+  );
+});
+
+test('a Nest session ending in less than 30 minutes is given one hour', async () => {
+  const now = Date.UTC(2026, 9, 18, 10);
+  const transport = async () => ({
+    status: 200,
+    headers: {},
+    body: JSON.stringify({
+      access_token: 't',
+      userid: '1',
+      expires_in: 'Sun, 18-Oct-2026 10:10:00 GMT',
+    }),
+  });
+  const client = new NestClient({ transport, now: () => now });
+  const session = await client.nestSession('jwt');
+  assert.equal(session.expiresAt, now + 3600_000);
+});
+
+test('scene trigger severity: testing < warning < emergency, unknown codes count as on', async () => {
+  const { alarmRank } = await import('../src/model.js');
+  assert.deepEqual([0, 1, 2, 3, 9, undefined].map(alarmRank), [0, 1, 2, 3, 1, undefined]);
 });

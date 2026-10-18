@@ -42,6 +42,7 @@ async function setup(
     now = NOW,
     create = true,
     logs = [],
+    prepare,
   } = {},
 ) {
   if (!mocked.has(t)) {
@@ -49,6 +50,7 @@ async function setup(
     t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now });
   }
   const gladys = createFakeGladys({ config });
+  prepare?.(gladys);
   const app = new NestProtectApp({
     gladys,
     logger: recorder(logs),
@@ -175,10 +177,10 @@ test('the sign-in chain of pynest, one full read, then the long poll; nothing se
       ['muted', 'smoke-sensor', 'muted', null],
       ['battery', 'battery', 'integer', 'percent'],
       ['battery_low', 'battery-low', 'binary', null],
-      ['online', 'unknown', 'unknown', null],
-      ['self_test', 'unknown', 'unknown', null],
+      ['online', 'unknown', 'binary', null],
+      ['self_test', 'unknown', 'binary', null],
       ['last_test_days', 'duration', 'integer', 'days'],
-      ['night_light', 'unknown', 'unknown', null],
+      ['night_light', 'unknown', 'binary', null],
     ],
   );
   assert.ok(
@@ -226,15 +228,17 @@ test('the sign-in chain of pynest, one full read, then the long poll; nothing se
   assertNoSecret(server, logs);
 });
 
-test('a change arrives by the long poll; the scene triggers fire once per rise', async (t) => {
+test('a change arrives by the long poll; the scene triggers fire once per rise of the level', async (t) => {
   const { gladys, server, advance } = await setup(t);
   assert.equal(server.waiting.length, 1);
-  server.change('topaz.DEV1', { smoke_status: 2 });
+  const event = (key, level) => ({
+    key,
+    data: { device: DEVICE, level, room: 'Kitchen', delayed: false },
+  });
+  server.change('topaz.DEV1', { smoke_status: 1 });
   await advance(3 * SECOND);
   assert.equal(last(gladys, 'smoke'), 1);
-  assert.deepEqual(gladys.fake.sceneEvents, [
-    { key: SCENE_TRIGGERS.SMOKE, data: { device: DEVICE, level: 'warning', room: 'Kitchen' } },
-  ]);
+  assert.deepEqual(gladys.fake.sceneEvents, [event(SCENE_TRIGGERS.SMOKE, 'testing')]);
   // The next long poll carries the new revision.
   assert.equal(
     server
@@ -243,27 +247,64 @@ test('a change arrives by the long poll; the scene triggers fire once per rise',
       .json.objects.find((o) => o.object_key === 'topaz.DEV1').object_revision,
     2,
   );
-
+  server.change('topaz.DEV1', { smoke_status: 2 });
+  await advance(3 * SECOND);
   server.change('topaz.DEV1', { smoke_status: 3 });
   await advance(3 * SECOND);
-  assert.equal(gladys.fake.sceneEvents.length, 1, 'still smoke: no second event');
+  assert.deepEqual(gladys.fake.sceneEvents, [
+    event(SCENE_TRIGGERS.SMOKE, 'testing'),
+    event(SCENE_TRIGGERS.SMOKE, 'warning'),
+    event(SCENE_TRIGGERS.SMOKE, 'emergency'),
+  ]);
+  server.change('topaz.DEV1', { hushed_state: true });
+  await advance(3 * SECOND);
+  server.change('topaz.DEV1', { smoke_status: 2 });
+  await advance(3 * SECOND);
+  assert.equal(gladys.fake.sceneEvents.length, 3, 'still smoke, or going down: no event');
   server.change('topaz.DEV1', { smoke_status: 0 });
   await advance(3 * SECOND);
   assert.equal(last(gladys, 'smoke'), 0);
-  assert.equal(gladys.fake.sceneEvents.length, 1, 'never on the way back');
-  server.change('topaz.DEV1', { co_status: 3, hushed_state: true });
+  assert.equal(gladys.fake.sceneEvents.length, 3, 'never on the way back');
+  server.change('topaz.DEV1', { co_status: 3 });
   await advance(3 * SECOND);
   assert.equal(last(gladys, 'co'), 1);
   assert.equal(last(gladys, 'muted'), 1);
-  assert.deepEqual(gladys.fake.sceneEvents.at(-1), {
-    key: SCENE_TRIGGERS.CO,
-    data: { device: DEVICE, level: 'emergency', room: 'Kitchen' },
-  });
-  server.change('topaz.DEV1', { smoke_status: 1 });
-  await advance(3 * SECOND);
-  assert.deepEqual(gladys.fake.sceneEvents.at(-1).data.level, 'testing', 'a test fires too');
+  assert.deepEqual(gladys.fake.sceneEvents.at(-1), event(SCENE_TRIGGERS.CO, 'emergency'));
 });
 
+test('a scene event Gladys did not take is sent again while the alarm lasts, 15 minutes at most', async (t) => {
+  const { gladys, app, server, advance } = await setup(t);
+  const publish = gladys.publishSceneEvent.bind(gladys);
+  let failing = true;
+  gladys.publishSceneEvent = (key, data) =>
+    failing ? Promise.reject(new Error('Gladys busy')) : publish(key, data);
+  server.change('topaz.DEV1', { co_status: 2 });
+  await advance(3 * SECOND);
+  assert.equal(gladys.fake.sceneEvents.length, 0);
+  assert.equal(app.pendingEvents.length, 1);
+  failing = false;
+  server.answerPolls({ objects: [] });
+  await advance(3 * SECOND);
+  assert.deepEqual(gladys.fake.sceneEvents, [
+    {
+      key: SCENE_TRIGGERS.CO,
+      data: { device: DEVICE, level: 'warning', room: 'Kitchen', delayed: true },
+    },
+  ]);
+  assert.equal(app.pendingEvents.length, 0);
+
+  // Too old, or the alarm over: dropped.
+  failing = true;
+  server.change('topaz.DEV1', { smoke_status: 3 });
+  await advance(3 * SECOND);
+  assert.equal(app.pendingEvents.length, 1);
+  t.mock.timers.setTime(Date.now() + 16 * MINUTE);
+  failing = false;
+  server.answerPolls({ objects: [] });
+  await advance(3 * SECOND);
+  assert.equal(app.pendingEvents.length, 0);
+  assert.equal(gladys.fake.sceneEvents.length, 1);
+});
 test('an alarm already on at the first read fires once', async (t) => {
   const server = fakeNest();
   server.put('topaz.DEV1', protect({ co_status: 2 }));
@@ -420,11 +461,80 @@ test('cookies rotated by Google go back to the configuration, never to /data, an
   await gladys.fake.configUpdated({ ...CONFIG, cookies: merged });
   await advance(2 * SECOND);
   assert.equal(server.google().length, 1);
-  // A save that did not reach Gladys: the old value coming back keeps the rotated one.
-  await gladys.fake.configUpdated(CONFIG);
-  await advance(2 * SECOND);
-  assert.equal(server.google().length, 1);
   assert.equal(app.config.cookies, merged);
+  assert.equal(app.pendingCookies, undefined);
+});
+
+/** setConfig failing `count` times, then working. */
+const failingSetConfig = (count) => (gladys) => {
+  const real = gladys.setConfig.bind(gladys);
+  let left = count;
+  gladys.setConfigCalls = 0;
+  gladys.setConfig = (values) => {
+    gladys.setConfigCalls += 1;
+    if (left > 0) {
+      left -= 1;
+      return Promise.reject(new Error('Gladys unavailable'));
+    }
+    return real(values);
+  };
+};
+
+test('rotated cookies Gladys did not take are saved again at the next run', async (t) => {
+  const server = fakeNest();
+  server.rotate = ['__Secure-1PSIDTS=sidts-NEW; Path=/'];
+  const merged = COOKIES.replace('sidts-OLD', 'sidts-NEW');
+  const { gladys, app, advance } = await setup(t, { server, prepare: failingSetConfig(1) });
+  assert.equal(gladys.setConfigCalls, 1);
+  assert.equal(app.pendingCookies, merged);
+  assert.equal(app.config.cookies, merged, 'used at once all the same');
+  server.answerPolls({ objects: [] });
+  await advance(3 * SECOND);
+  assert.equal(gladys.setConfigCalls, 2);
+  assert.deepEqual(gladys.fake.bodies('POST', '/config'), [{ config: { cookies: merged } }]);
+  assert.equal(app.pendingCookies, undefined);
+  assert.equal(app.storedCookies, merged);
+});
+
+test('two failed saves: still pending; Gladys sending the old cookies back is not new credentials', async (t) => {
+  const server = fakeNest();
+  server.rotate = ['__Secure-1PSIDTS=sidts-NEW; Path=/'];
+  const merged = COOKIES.replace('sidts-OLD', 'sidts-NEW');
+  const { gladys, app, advance } = await setup(t, { server, prepare: failingSetConfig(2) });
+  server.answerPolls({ objects: [] });
+  await advance(3 * SECOND);
+  assert.equal(gladys.setConfigCalls, 2);
+  assert.equal(app.pendingCookies, merged);
+  // A reconnection to Gladys: it still holds the old cookies; the rotated ones stay, and are saved.
+  await gladys.disconnect();
+  await gladys.connect();
+  await settle();
+  assert.equal(server.google().length, 1, 'no restart, no new sign-in');
+  assert.equal(app.config.cookies, merged);
+  assert.equal(gladys.setConfigCalls, 3);
+  assert.equal(app.pendingCookies, undefined);
+});
+
+test('a rotation answered after the user saved new cookies never overwrites them', async (t) => {
+  const server = fakeNest();
+  let release;
+  server.queue.push({
+    match: (r) => r.host === 'accounts.google.com',
+    wait: new Promise((resolve) => (release = resolve)),
+    body: { access_token: 'ya29.stale', expires_in: 3599 },
+    headers: { 'set-cookie': ['__Secure-1PSIDTS=sidts-STALE; Path=/'] },
+  });
+  const { gladys, app, advance } = await setup(t, { server, create: false });
+  const fresh = `${COOKIES}; NID=typed-by-the-user`;
+  const saving = gladys.fake.configUpdated({ ...CONFIG, cookies: fresh });
+  await settle();
+  release();
+  await saving;
+  await advance(3 * SECOND);
+  assert.deepEqual(gladys.fake.bodies('POST', '/config'), [], 'no stale rotation saved');
+  assert.equal(app.config.cookies, fresh);
+  assert.ok(!app.config.cookies.includes('STALE'));
+  assert.equal(server.google().at(-1).headers.Cookie, fresh);
 });
 
 test('429: a pause bounded and kept in /data, across a restart', async (t) => {
@@ -561,4 +671,82 @@ test('an account without Nest Protect: no long poll, a full read again in an hou
   await advance(HOUR + MINUTE, 10 * MINUTE);
   assert.equal(server.launches().length, 2);
   assert.equal(server.polls().length, 0);
+});
+
+test('answers that move no revision, coming back at once, slow the long poll down', async (t) => {
+  const { server, advance } = await setup(t);
+  for (let i = 0; i < 3; i += 1) {
+    server.answerPolls({ objects: [server.bucket('topaz.DEV1')] });
+    await advance(3 * SECOND);
+  }
+  const count = server.polls().length;
+  await advance(50 * SECOND, 5 * SECOND);
+  assert.equal(server.polls().length, count, 'a one-minute pause');
+});
+
+test('two 502/504 in a row: Nest unreachable, grey badges; a working long poll clears it', async (t) => {
+  const { gladys, server, advance } = await setup(t);
+  server.answerPolls('', 502);
+  await advance(SECOND);
+  assert.equal(gladys.fake.connectionStatus.connected, true, 'one is common');
+  await advance(2 * MINUTE + 5 * SECOND, 5 * SECOND);
+  server.answerPolls('', 504);
+  await advance(SECOND);
+  assert.equal(gladys.fake.connectionStatus.connected, false);
+  assert.match(message(gladys).en, /Nest unreachable .*may be old/);
+  assert.equal(gladys.fake.transports.at(-1).transport, DEVICE_TRANSPORTS.UNREACHABLE);
+  await advance(2 * MINUTE + 5 * SECOND, 5 * SECOND);
+  server.answerPolls({ objects: [] });
+  await advance(3 * SECOND);
+  assert.equal(gladys.fake.connectionStatus.connected, true);
+  assert.equal(gladys.fake.transports.at(-1).transport, DEVICE_TRANSPORTS.CLOUD);
+});
+
+test('the test button always shows a failure, even the first one', async (t) => {
+  const { gladys, server } = await setup(t, { create: false });
+  server.queue.push({
+    match: (r) => r.path.endsWith('/app_launch'),
+    error: new NestError('network', 'connection reset'),
+  });
+  const ack = await gladys.fake.action(ACTIONS.TEST_CONNECTION);
+  assert.match(ack.data.message.en, /Nest unreachable \(connection reset\)/);
+});
+test('the pause after an error is kept in /data: a restart does not read sooner', async (t) => {
+  const server = fakeNest();
+  const store = memoryStore();
+  server.queue.push({
+    match: (r) => r.path.endsWith('/app_launch'),
+    error: new NestError('network', 'connection reset'),
+  });
+  const first = await setup(t, { server, store, create: false });
+  first.app.stop();
+  assert.equal(store.data.pausedUntil, NOW + 15 * SECOND);
+  const count = server.requests.length;
+  const again = await setup(t, { server, store, create: false });
+  assert.equal(server.requests.length, count, 'paused after the restart too');
+  await again.advance(16 * SECOND);
+  assert.equal(server.launches().length, 2);
+  assert.equal(store.data.pausedUntil, undefined, 'cleared by a success');
+});
+
+test('an unexpected sign-in answer twice in a row becomes a refusal with spaced retries', async (t) => {
+  const server = fakeNest();
+  for (let i = 0; i < 2; i += 1) {
+    server.queue.push({ match: (r) => r.host === 'accounts.google.com', body: { hello: 'x' } });
+  }
+  const { gladys, advance } = await setup(t, { server, create: false });
+  assert.match(message(gladys).en, /Connecting/, 'the first one waits 15 s');
+  await advance(16 * SECOND);
+  assert.match(message(gladys).en, /one new try in 60 min/);
+  assert.equal(server.google().length, 2);
+});
+
+test('another issue_token forgets the devices of the previous account', async (t) => {
+  const { gladys, app } = await setup(t);
+  assert.equal(app.known.size, 1);
+  await gladys.fake.configUpdated({
+    ...CONFIG,
+    issue_token: ISSUE_TOKEN.replace('SECRET-LOGIN-HINT', 'OTHER-HINT'),
+  });
+  assert.equal(app.known.size, 0);
 });

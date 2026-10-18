@@ -48,8 +48,8 @@ export const SPECS = [
     category: C.BATTERY_LOW,
     type: T.BATTERY_LOW.BINARY,
   },
-  { key: 'online', category: C.UNKNOWN, type: T.UNKNOWN.UNKNOWN, keepHistory: true },
-  { key: 'self_test', category: C.UNKNOWN, type: T.UNKNOWN.UNKNOWN },
+  { key: 'online', category: C.UNKNOWN, type: T.SENSOR.BINARY, keepHistory: true },
+  { key: 'self_test', category: C.UNKNOWN, type: T.SENSOR.BINARY },
   {
     key: 'last_test_days',
     source: 'latest_manual_test_end_utc_secs',
@@ -63,7 +63,7 @@ export const SPECS = [
     key: 'night_light',
     source: 'night_light_enable',
     category: C.UNKNOWN,
-    type: T.UNKNOWN.UNKNOWN,
+    type: T.SENSOR.BINARY,
   },
 ];
 

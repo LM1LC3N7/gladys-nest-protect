@@ -50,9 +50,10 @@ export function trustedTransport(value) {
 /**
  * New cookie values (Set-Cookie headers) merged into a cookie header: a new
  * value replaces the old one, the others stay (pynest `merge_cookies`).
- * Bounded; a cookie being deleted (empty value) is not taken.
+ * Bounded; a cookie being deleted (empty value, Max-Age <= 0, or an
+ * Expires already past) is not taken.
  */
-export function mergeCookies(header, setCookies = []) {
+export function mergeCookies(header, setCookies = [], now = Date.now()) {
   const jar = new Map();
   for (const part of String(header ?? '').split(';')) {
     const i = part.indexOf('=');
@@ -62,7 +63,10 @@ export function mergeCookies(header, setCookies = []) {
   }
   const list = Array.isArray(setCookies) ? setCookies : [setCookies];
   for (const line of list.slice(0, LIMITS.cookieCount)) {
-    const first = String(line ?? '').split(';')[0];
+    const [first, ...attributes] = String(line ?? '').split(';');
+    if (expired(attributes, now)) {
+      continue;
+    }
     const i = first.indexOf('=');
     if (i <= 0) {
       continue;
@@ -79,6 +83,25 @@ export function mergeCookies(header, setCookies = []) {
   }
   const merged = [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
   return merged.length <= LIMITS.cookies ? merged : String(header ?? '');
+}
+
+/** Whether the attributes of a Set-Cookie delete it (Max-Age <= 0, Expires past). */
+function expired(attributes, now) {
+  for (const raw of attributes) {
+    const i = raw.indexOf('=');
+    const name = (i < 0 ? raw : raw.slice(0, i)).trim().toLowerCase();
+    const value = i < 0 ? '' : raw.slice(i + 1).trim();
+    if (name === 'max-age' && /^-?\d+$/.test(value) && Number(value) <= 0) {
+      return true;
+    }
+    if (name === 'expires') {
+      const time = Date.parse(value);
+      if (!Number.isNaN(time) && time <= now) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** "Sat, 18-Oct-2026 12:00:00 GMT" (the Nest session end) -> ms, undefined when unreadable. */
@@ -105,12 +128,18 @@ export class NestClient {
     /** Per-request timeout; undefined = the transport's default (shorter for the button). */
     this.timeout = undefined;
     this.signingIn = undefined;
+    /** Unexpected sign-in answers in a row (see signIn). */
+    this.anomalies = 0;
+    /** Given back with the rotated cookies: which configuration they belong to. */
+    this.tag = undefined;
   }
 
-  configure({ issueToken, cookies, session = null }) {
+  configure({ issueToken, cookies, session = null, tag }) {
     this.issueToken = issueToken;
     this.cookies = cookies;
     this.session = session;
+    this.tag = tag;
+    this.anomalies = 0;
   }
 
   get hasSession() {
@@ -144,6 +173,9 @@ export class NestClient {
     if (!this.issueToken || !this.cookies) {
       throw new NestError('no_credentials', 'no issue_token or cookies');
     }
+    // What this request was sent with: rotated cookies only ever apply to it.
+    const sent = this.cookies;
+    const tag = this.tag;
     const answer = await this.send(this.issueToken, {
       method: 'GET',
       headers: {
@@ -177,11 +209,12 @@ export class NestClient {
       });
     }
     const rotated = answer.headers?.['set-cookie'];
-    if (rotated) {
-      const merged = mergeCookies(this.cookies, rotated);
-      if (merged !== this.cookies) {
+    // New cookies configured meanwhile win over a rotation of the old ones.
+    if (rotated && this.cookies === sent && this.tag === tag) {
+      const merged = mergeCookies(sent, rotated, this.now());
+      if (merged !== sent) {
         this.cookies = merged;
-        this.onCookies?.(merged);
+        this.onCookies?.(merged, { sent, tag });
       }
     }
     return json.access_token;
@@ -266,18 +299,43 @@ export class NestClient {
     return {
       accessToken: json.access_token,
       userId,
-      expiresAt: end !== undefined && end > now ? end : now + TIMINGS.sessionDefault,
+      // An end too close (or unreadable) would make the sign-in run again and again.
+      expiresAt:
+        end !== undefined && end - now >= TIMINGS.sessionMinimum
+          ? end
+          : now + TIMINGS.sessionDefault,
       transportUrl: trustedTransport(json.urls?.transport_url),
     };
   }
 
-  /** The three steps; one at a time (a second caller waits for the first). */
+  /**
+   * The three steps; one at a time (a second caller waits for the first).
+   * An unexpected answer of a sign-in step (no token, an odd 4xx) twice in a
+   * row is a refusal (`nest_refused`, spaced retries), not a network error
+   * tried again every few minutes.
+   */
   signIn() {
     if (!this.signingIn) {
       this.signingIn = (async () => {
-        const google = await this.googleToken();
-        const jwt = await this.nestJwt(google);
-        this.session = await this.nestSession(jwt);
+        try {
+          const google = await this.googleToken();
+          const jwt = await this.nestJwt(google);
+          this.session = await this.nestSession(jwt);
+        } catch (err) {
+          if (err?.kind === 'bad_response' || err?.kind === 'http') {
+            this.anomalies += 1;
+            if (this.anomalies >= 2) {
+              this.anomalies = 0;
+              throw new NestError('nest_refused', `${err.message}, twice in a row`, {
+                status: err.status,
+              });
+            }
+          } else if (err?.kind === 'refused' || err?.kind === 'nest_refused') {
+            this.anomalies = 0;
+          }
+          throw err;
+        }
+        this.anomalies = 0;
         this.onSession?.(this.session);
         return this.session;
       })().finally(() => {

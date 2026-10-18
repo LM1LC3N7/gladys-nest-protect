@@ -97,8 +97,11 @@ export const TIMINGS = {
   servicePause: 2 * MINUTE,
   /** The Nest session is renewed when it ends within this (the long poll lasts up to 10 min). */
   sessionMargin: 15 * MINUTE,
-  /** Nest session lifetime when its answer has no readable date. */
+  /** Nest session lifetime when its answer has no readable date, or one less than 30 min away. */
   sessionDefault: HOUR,
+  sessionMinimum: 30 * MINUTE,
+  /** No new sign-in sooner than this after the previous one, unless Nest refused the session. */
+  signInSpacing: 10 * MINUTE,
   /** A full read (app_launch) again after this long, on top of the long poll. */
   trueUp: HOUR,
   /** A session refused within this long after it was made is not made again at once. */
@@ -114,6 +117,8 @@ export const TIMINGS = {
   rateLimitMin: MINUTE,
   rateLimitMax: 6 * HOUR,
   rateLimitDefault: 10 * MINUTE,
+  /** A scene event Gladys did not take is sent again while the alarm lasts, this long at most. */
+  sceneEventMaxAge: 15 * MINUTE,
   testCooldown: 30 * SECOND,
   flushInterval: SECOND,
   stateHeartbeat: 30 * MINUTE,

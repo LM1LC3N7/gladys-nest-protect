@@ -124,8 +124,8 @@
         "fr": "Fumée détectée (Nest Protect)"
       },
       "description": {
-        "en": "A Nest Protect reports smoke (warning, emergency, or a test). Not a certified alarm: may come late or never.",
-        "fr": "Un Nest Protect signale de la fumée (alerte, urgence, ou un test). Pas une alarme certifiée : peut arriver en retard ou jamais."
+        "en": "A Nest Protect reports smoke (test, warning, emergency): once per rise of the level. Not a certified alarm: may come late or never.",
+        "fr": "Un Nest Protect signale de la fumée (test, alerte, urgence) : une fois à chaque montée du niveau. Pas une alarme certifiée : peut arriver en retard ou jamais."
       },
       "fields": [
         {
@@ -136,6 +136,41 @@
             "en": "Detector",
             "fr": "Détecteur"
           }
+        },
+        {
+          "key": "level",
+          "type": "select",
+          "label": {
+            "en": "Level",
+            "fr": "Niveau"
+          },
+          "description": {
+            "en": "Empty: every level. Each rise of the level fires once (testing, then warning, then emergency).",
+            "fr": "Vide : tous les niveaux. Chaque montée du niveau déclenche une fois (test, puis alerte, puis urgence)."
+          },
+          "options": [
+            {
+              "value": "testing",
+              "label": {
+                "en": "Test",
+                "fr": "Test"
+              }
+            },
+            {
+              "value": "warning",
+              "label": {
+                "en": "Warning",
+                "fr": "Alerte"
+              }
+            },
+            {
+              "value": "emergency",
+              "label": {
+                "en": "Emergency",
+                "fr": "Urgence"
+              }
+            }
+          ]
         }
       ],
       "variables": [
@@ -153,6 +188,14 @@
           "label": {
             "en": "Room",
             "fr": "Pièce"
+          }
+        },
+        {
+          "key": "delayed",
+          "type": "boolean",
+          "label": {
+            "en": "Sent late (Gladys did not take it at once)",
+            "fr": "Envoyé en retard (Gladys ne l'a pas pris tout de suite)"
           }
         }
       ]
@@ -164,8 +207,8 @@
         "fr": "CO détecté (Nest Protect)"
       },
       "description": {
-        "en": "A Nest Protect reports carbon monoxide (warning, emergency, or a test). Not a certified alarm: may come late or never.",
-        "fr": "Un Nest Protect signale du monoxyde de carbone (alerte, urgence, ou un test). Pas une alarme certifiée : peut arriver en retard ou jamais."
+        "en": "A Nest Protect reports carbon monoxide (test, warning, emergency): once per rise of the level. Not a certified alarm: may come late or never.",
+        "fr": "Un Nest Protect signale du monoxyde de carbone (test, alerte, urgence) : une fois à chaque montée du niveau. Pas une alarme certifiée : peut arriver en retard ou jamais."
       },
       "fields": [
         {
@@ -176,6 +219,41 @@
             "en": "Detector",
             "fr": "Détecteur"
           }
+        },
+        {
+          "key": "level",
+          "type": "select",
+          "label": {
+            "en": "Level",
+            "fr": "Niveau"
+          },
+          "description": {
+            "en": "Empty: every level. Each rise of the level fires once (testing, then warning, then emergency).",
+            "fr": "Vide : tous les niveaux. Chaque montée du niveau déclenche une fois (test, puis alerte, puis urgence)."
+          },
+          "options": [
+            {
+              "value": "testing",
+              "label": {
+                "en": "Test",
+                "fr": "Test"
+              }
+            },
+            {
+              "value": "warning",
+              "label": {
+                "en": "Warning",
+                "fr": "Alerte"
+              }
+            },
+            {
+              "value": "emergency",
+              "label": {
+                "en": "Emergency",
+                "fr": "Urgence"
+              }
+            }
+          ]
         }
       ],
       "variables": [
@@ -193,6 +271,14 @@
           "label": {
             "en": "Room",
             "fr": "Pièce"
+          }
+        },
+        {
+          "key": "delayed",
+          "type": "boolean",
+          "label": {
+            "en": "Sent late (Gladys did not take it at once)",
+            "fr": "Envoyé en retard (Gladys ne l'a pas pris tout de suite)"
           }
         }
       ]

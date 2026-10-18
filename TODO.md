@@ -25,6 +25,10 @@ up to date at the end of every milestone.
       docs en/fr, cover. Tested against made-up answers only (Node 22 and
       24). No Docker on this PC: the image was not built here (the CI
       builds it).
+- [x] **Milestone 1 fixes — review** (2026-10-18): 7 important and 10 minor
+      points of the review (see "Decisions": cookie writes, long poll
+      floor, 502/504 in a row, pending scene events, level triggers,
+      binary types, stricter checks, persisted pause).
 - [ ] **Milestone 2 — real account**: run against a real account (see "To
       check on a real account"), turn the answers (anonymized) into
       fixtures, fix what differs.
@@ -76,7 +80,7 @@ up to date at the end of every milestone.
   level), hush `smoke-sensor/muted` (the core's own type for a detector
   silencing itself), battery `battery/integer` %, battery to replace
   `battery-low/binary`, days since the last manual test
-  `duration/integer` days, online / self-test / night light `unknown/unknown`
+  `duration/integer` days, online / self-test / night light `unknown/binary`
   0/1 (no core category fits; never `switch`).
 - **Smoke / CO = 1 for any status but 0** (ha-nest-protect's binary
   sensors), "testing" included: a test shows and fires the scene trigger, as
@@ -147,6 +151,55 @@ up to date at the end of every milestone.
   features as Gladys has them; a feature appears once its source field is
   seen (smoke and CO always).
 - **Category `security`** in the store.
+
+### Decisions of the review fixes (2026-10-18)
+
+- **Cookie writes** (review 1, 2): the client gives back, with the rotated
+  cookies, the cookies the Google request was sent with and the start it
+  belongs to (`tag` = the app generation); `saveCookies` ignores a rotation
+  of another start or of cookies no longer configured. The `setConfig`
+  calls are chained (one at a time). `pendingCookies` (not saved yet) is
+  tried again at the start of every run and at every `connected`;
+  `storedCookies` is what Gladys really holds: in `configUpdated`, a value
+  equal to it (Gladys still holding the old cookies) is not new
+  credentials, a value equal to the cookies in use is an echo (clears the
+  pending save), anything else restarts.
+- **Long poll floor** (review 3): "quick" = back in < 10 s without moving
+  any revision (`subscription()` compared before and after the merge), not
+  only empty answers; three in a row → one minute.
+- **502/504 in a row** (review 4): counted; from the second, "Nest
+  unreachable … states may be old", offline, grey badges; reset by the
+  first working long poll.
+- **Pending scene events** (review 5): an event Gladys refused is kept and
+  sent again (with `delayed: true`; first sends carry `delayed: false`) at
+  the start of every run and at every `connected`, while the reading is
+  still 1, 15 minutes at most; dropped otherwise. Not kept in `/data` (a
+  restart re-reads, and an alarm still on fires again anyway).
+- **Triggers by level** (review 6): a `level` select filter (testing,
+  warning, emergency) added next to `device` (keys unchanged); one event at
+  every rise of the severity rank (testing 1 < warning 2 < emergency 3; an
+  unknown non-zero code ranks 1), never on the way down (3 → 2 → 3 fires
+  again: it rises).
+- **Types** (review 7): online, self-test, night light `unknown/binary`
+  (0.1.0 not released: no created device to keep).
+- **Checks** (review 8, 9, 10): the issue_token path must be
+  `/o/oauth2/iframerpc` and `action` exactly `issueToken`; cookies in
+  visible ASCII (`/^[\x20-\x7e]+$/`); a Set-Cookie with `Max-Age <= 0` or an
+  `Expires` already past is not taken.
+- **Sign-in anomalies** (review 11): an unexpected answer of a sign-in step
+  (`bad_response`, odd 4xx `http`) twice in a row → `nest_refused` (1 h,
+  6 h, 24 h); reset by a sign-in that works or by a real refusal.
+- **Session end** (review 12): an end less than 30 minutes away (or
+  unreadable) → one hour; no new sign-in sooner than 10 minutes after the
+  previous one, except after a refusal (made in `authorized`).
+- **Button** (review 13): a failure of the button's read always sets the
+  status (even the first network error or a 502/504), so the button shows
+  it.
+- **Persisted pause** (review 14): the end of any error pause (`pausedUntil`)
+  is kept in `/data` (capped at 6 h when read back), cleared by a success
+  and by the button.
+- **Another account** (review 15): a new issue_token empties the published
+  devices list (`known`).
 - **Not checked here (PIPELINE step 1, main session)**: duplicates in the
   store, the core and the forum were checked when the batch was reserved
   (post #262).

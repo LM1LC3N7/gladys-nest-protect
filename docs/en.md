@@ -94,11 +94,18 @@ in a help request or an issue.
 ## Scene triggers
 
 - **Smoke detected (Nest Protect)** and **CO detected (Nest Protect)**: once
-  when the value goes to 1 (a test of the detector included), no new event
-  while it stays 1, nothing when it goes back to 0. When the integration
-  starts, an alarm already on fires once.
-- Filter: the detector (optional). Variables: `level` (`warning`,
-  `emergency`, `testing`, `unknown`, after ha-nest-protect) and `room`.
+  at every **rise of the level** (test < warning < emergency): a test, then
+  a warning, then an emergency give three events. Never on the way down,
+  nothing while the level stays the same, nothing when it goes back to 0.
+  When the integration starts, an alarm already on fires once.
+- Filters (optional): the detector, and the level (`testing`, `warning`,
+  `emergency`). Variables: `level` (`testing`, `warning`, `emergency`, or
+  `unknown` for an unknown code, after ha-nest-protect), `room` and
+  `delayed`.
+- **An event may come late**: when Gladys did not take it (Gladys
+  restarting, for instance), the integration sends it again at the next read
+  or reconnection, while the alarm lasts and 15 minutes at most; it then
+  carries `delayed` = true.
 - Reminder: **not a certified alarm system**. A scene can warn you, turn
   lights on or stop a ventilation, but it replaces neither the detector's
   alarm nor a call to the emergency services.
@@ -129,7 +136,13 @@ three times in a row at once). A full read is done again every hour.
   (as ha-nest-protect).
 - A detector offline for Nest is marked "unreachable" on its card.
 - During an outage, **the values shown may be old**: smoke that appeared
-  during the outage is only seen when the connection is back.
+  during the outage is only seen when the connection is back, and **an
+  alarm that rises and falls during the outage is never seen** (neither a
+  state nor a scene event).
+- Several 502/504 in a row of the open request: the integration says "Nest
+  unreachable" and the cards turn "unreachable" from the second one.
+- The pause after an error is kept in `/data`: a restart does not read
+  sooner.
 
 ## Limits
 
@@ -149,10 +162,13 @@ three times in a row at once). A full read is done again every hour.
 The integration keeps in `/data/nest-protect-state.json` (readable by its
 own container only): the Nest session (its access token, the Nest user id,
 its end, and the address of the update server), the one token needed so
-Google is not asked again at every restart; a salted fingerprint of the
+Google is not asked again at every restart. **This token gives access to
+your whole Nest account** (not only the detectors) while it is valid:
+protect the backups of Gladys' `/data` folder like a password. Also: a
+salted fingerprint of the
 issue_token (the account of that session); a stop (cookies refused, session
 refused and its next try) tied to a salted fingerprint of the issue_token
-and the cookies; the end of a 429 pause. **Never** the issue_token, the
+and the cookies; the end of a pause (429 or an error). **Never** the issue_token, the
 cookies, nor your e-mail. The logs hold none of them. Nothing is sent
 anywhere but to Google (`accounts.google.com`,
 `nestauthproxyservice-pa.googleapis.com`) and Nest (`home.nest.com` and its

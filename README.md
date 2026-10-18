@@ -43,7 +43,7 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (NestProtectApp)
   `widget_track`) at start, after a failure and every hour; in between,
   `POST <transport>/v6/subscribe` with the known revisions, answered when a
   bucket changes (up to ~10 min). At least 2 s between two long polls, one
-  minute after three quick empty answers.
+  minute after three quick answers that move no revision.
 - **Errors**: Google refusing the cookies (`USER_LOGGED_OUT`, any 4xx):
   stop, persisted, until new credentials or the button. Nest refusing the
   session: made again once; refused again within 2 minutes of being made: a
@@ -54,9 +54,11 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (NestProtectApp)
 - **Gladys side**: one device per Protect (`protect:<topaz id>`), every
   feature `read_only`, categories `smoke-sensor` (`binary`, `muted`),
   `co-sensor` (`binary`), `battery` (%), `battery-low`, `duration` (days),
-  `unknown` (online, self-test, night light). No `switch`, no command
+  `unknown/binary` (online, self-test, night light). No `switch`, no command
   handler (every command refused). Scene events `smoke_detected` and
-  `co_detected` on the rise to 1 (`device`, `level`, `room`). The Discovery
+  `co_detected` at each rise of the level (testing < warning < emergency;
+  `device`, `level`, `room`, `delayed`), sent again for up to 15 minutes
+  when Gladys did not take them. The Discovery
   list never shrinks; status, Discovery and badges are sent again at every
   reconnection to Gladys.
 

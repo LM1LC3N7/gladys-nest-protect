@@ -38,5 +38,29 @@ the notes of the version's GitHub Release.
   detector is offline.
 - "Test the connection" button; documentation in English and French;
   `LICENSE` and `THIRD_PARTY_NOTICES.md` shipped in the image.
+- Scene triggers: a `level` filter (testing, warning, emergency), an event
+  at every rise of the level (never on the way down), and a `delayed`
+  variable on events sent again after Gladys did not take them (while the
+  alarm lasts, 15 minutes at most).
+
+### Fixed
+
+- Rotated cookies of an earlier sign-in can no longer overwrite cookies the
+  user has just saved; the saves to Gladys run one at a time, and a failed
+  one is tried again at every read and reconnection (the old value coming
+  back from Gladys meanwhile is not taken for new credentials).
+- The long poll slows down on quick answers that move no revision (not only
+  empty ones); two 502/504 in a row show "Nest unreachable" and grey badges.
+- Online, self-test and night light are `unknown/binary`.
+- Stricter checks: the issue_token path and `action`, cookies in visible
+  ASCII; a Set-Cookie deleting a cookie is not taken; an unexpected sign-in
+  answer twice in a row gets the spaced retries of a refused session; a
+  session ending within 30 minutes is given one hour, and no new sign-in
+  comes sooner than 10 minutes after the previous one (unless refused).
+- The test button always shows a failure; the pause after an error is kept
+  in `/data`; another issue_token forgets the previous account's devices.
+- Docs: the Nest session token kept in `/data` gives access to the whole
+  Nest account; an alarm rising and falling during an outage is not seen;
+  an event may come late.
 
 [Unreleased]: https://github.com/LM1LC3N7/gladys-nest-protect/commits/main

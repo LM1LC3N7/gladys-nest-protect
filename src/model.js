@@ -70,6 +70,19 @@ export const ALARM_LEVELS = { 0: 'ok', 1: 'testing', 2: 'warning', 3: 'emergency
 export const alarmLevel = (status) =>
   Number.isInteger(status) ? (ALARM_LEVELS[status] ?? 'unknown') : undefined;
 
+/**
+ * The severity of a status, for the scene triggers: 0 none, 1 testing,
+ * 2 warning, 3 emergency; an unknown non-zero code counts as 1 (it is "on").
+ */
+export const alarmRank = (status) =>
+  Number.isInteger(status)
+    ? status === 0
+      ? 0
+      : status >= 1 && status <= 3
+        ? status
+        : 1
+    : undefined;
+
 /** binary_sensor.py: smoke and CO are "on" for any status but 0. */
 export const alarmOn = (status) => (Number.isInteger(status) ? (status !== 0 ? 1 : 0) : undefined);
 

@@ -15,7 +15,14 @@ import { LIMITS, MINUTE, SCENE_TRIGGERS, TIMINGS } from './constants.js';
 import { buildDevice, deviceIds, deviceStates } from './devices.js';
 import { NestError, errorReason } from './http.js';
 import { T, age, join } from './i18n.js';
-import { READINGS, alarmLevel, detectorsOf, mergeBuckets, subscription } from './model.js';
+import {
+  READINGS,
+  alarmLevel,
+  alarmRank,
+  detectorsOf,
+  mergeBuckets,
+  subscription,
+} from './model.js';
 import { StatePublisher } from './publisher.js';
 import { fileStore, fingerprint, newSalt, normalizeMemory } from './store.js';
 
@@ -61,7 +68,7 @@ export class NestProtectApp {
     this.client = new NestClient({
       transport,
       now,
-      onCookies: (cookies) => this.saveCookies(cookies),
+      onCookies: (cookies, origin) => this.saveCookies(cookies, origin),
       onSession: () => this.persistSession(),
     });
     this.publisher = new StatePublisher({ gladys, logger, now, timers });
@@ -73,9 +80,11 @@ export class NestProtectApp {
     this.detectors = new Map();
     /** Every device published in this run, by external id: a publication never shrinks. */
     this.known = new Map();
-    /** topaz id -> { smoke, co }: the last alarm readings, for the scene triggers. */
+    /** topaz id -> { smoke, co }: the last alarm ranks (0 none, 1 testing, 2 warning, 3 emergency). */
     this.alarms = new Map();
     this.sceneWindow = [];
+    /** Scene events Gladys did not take: { key, data, at, detectorId, reading }, sent again later. */
+    this.pendingEvents = [];
     this.published = undefined;
     this.badges = new Map();
     this.timer = undefined;
@@ -96,8 +105,14 @@ export class NestProtectApp {
     /** When the last Nest session was made (see `fresh`). */
     this.signedInAt = -Infinity;
     this.lastTestAt = -Infinity;
-    /** The cookies Google rotated away from (see saveCookies). */
-    this.replacedCookies = undefined;
+    /** The cookies Gladys really holds (the last value read from it or saved to it). */
+    this.storedCookies = undefined;
+    /** Rotated cookies not saved to Gladys yet (tried again at every run and reconnection). */
+    this.pendingCookies = undefined;
+    /** The setConfig calls, one after the other. */
+    this.cookieWrites = Promise.resolve();
+    /** 502/504 of the long poll in a row. */
+    this.gatewayFailures = 0;
     this.started = false;
     this.lastStatus = undefined;
   }
@@ -107,8 +122,11 @@ export class NestProtectApp {
   async start(raw = {}) {
     this.stop();
     await this.running;
+    const previousToken = this.config.issueToken;
     this.config = normalizeConfig(raw);
-    this.reset();
+    this.reset({ newAccount: this.config.issueToken !== previousToken });
+    this.storedCookies = this.config.cookies;
+    this.pendingCookies = undefined;
     this.memory = normalizeMemory(await this.store.load().catch(() => null), this.now());
     if (!this.memory.salt) {
       this.memory.salt = newSalt();
@@ -118,6 +136,11 @@ export class NestProtectApp {
     if (this.memory.rateLimitedUntil > this.now()) {
       this.pausedUntil = this.memory.rateLimitedUntil;
       this.pauseKind = 'rate';
+    }
+    // So does the pause of an error: a restart never reads sooner.
+    if (this.memory.pausedUntil > Math.max(this.now(), this.pausedUntil)) {
+      this.pausedUntil = this.memory.pausedUntil;
+      this.pauseKind = 'backoff';
     }
     const problem = configProblem(this.config);
     if (problem) {
@@ -130,6 +153,7 @@ export class NestProtectApp {
       issueToken: this.config.issueToken,
       cookies: this.config.cookies,
       session: saved && saved.account === this.account ? withoutAccount(saved) : null,
+      tag: this.generation,
     });
     this.publisher.start();
     // A stop on these very credentials survives a restart (never retried by itself).
@@ -164,8 +188,16 @@ export class NestProtectApp {
     }
   }
 
-  /** Forgets the account and the failures: new credentials, or a restart. A 429 pause stays. */
-  reset() {
+  /**
+   * Forgets the account and the failures: new credentials, or a restart. A
+   * 429 pause stays. Another account (a new issue_token): its devices only.
+   */
+  reset({ newAccount = false } = {}) {
+    if (newAccount) {
+      this.known = new Map();
+    }
+    this.pendingEvents = [];
+    this.gatewayFailures = 0;
     this.buckets = new Map();
     this.detectors = new Map();
     this.alarms = new Map();
@@ -206,6 +238,7 @@ export class NestProtectApp {
       return;
     }
     await this.configUpdated(raw);
+    await this.retryPending();
     this.published = undefined;
     this.badges = new Map();
     const status = this.lastStatus;
@@ -222,16 +255,18 @@ export class NestProtectApp {
   async configUpdated(raw = {}) {
     const next = normalizeConfig(raw);
     const previous = this.config;
-    if (
-      next.issueToken === previous.issueToken &&
-      next.cookies !== previous.cookies &&
-      next.cookies === this.replacedCookies
-    ) {
-      // The cookies Google rotated away from: the rotated ones stay.
+    const sameAccount = next.issueToken === previous.issueToken;
+    if (sameAccount && next.cookies === previous.cookies) {
+      // Gladys holds what the integration uses (an echo of a saved rotation, or no change).
+      this.storedCookies = next.cookies;
+      if (this.pendingCookies === next.cookies) {
+        this.pendingCookies = undefined;
+      }
+    } else if (sameAccount && next.cookies === this.storedCookies) {
+      // Gladys still holds the cookies Google rotated away from (their save is
+      // pending): not new credentials, the rotated ones stay.
       next.cookies = previous.cookies;
-    }
-    if (next.issueToken !== previous.issueToken || next.cookies !== previous.cookies) {
-      this.replacedCookies = undefined;
+    } else {
       return this.start(raw);
     }
     this.config = next;
@@ -285,16 +320,58 @@ export class NestProtectApp {
    * `cookies` secret field, where they came from), never to /data nor to a
    * log, so a restart uses them (ha-nest-protect saves them the same way).
    */
-  async saveCookies(cookies) {
-    // The value replaced, should Gladys still send it (a failed save): not new credentials.
-    this.replacedCookies = this.config.cookies;
-    this.config = { ...this.config, cookies };
-    try {
-      await this.gladys.setConfig({ cookies });
-      this.logger.info('Google rotated some cookies: the configuration was updated');
-    } catch (err) {
-      this.logger.warn(`Saving the rotated cookies failed: ${err.message}`);
+  saveCookies(cookies, { sent, tag } = {}) {
+    // A rotation of cookies the user has replaced since (or of another start) never wins.
+    if (tag !== this.generation || this.config.cookies !== sent) {
+      this.logger.info('Rotated cookies of a previous configuration: ignored');
+      return Promise.resolve();
     }
+    this.config = { ...this.config, cookies };
+    this.pendingCookies = cookies;
+    return this.writeCookies();
+  }
+
+  /** The pending cookies saved to Gladys, one setConfig at a time. */
+  writeCookies() {
+    this.cookieWrites = this.cookieWrites
+      .then(() => this.writeCookiesNow())
+      .catch((err) => this.logger.warn(`Saving the rotated cookies failed: ${err.message}`));
+    return this.cookieWrites;
+  }
+
+  async writeCookiesNow() {
+    const value = this.pendingCookies;
+    if (value === undefined) {
+      return;
+    }
+    if (value !== this.config.cookies) {
+      // Replaced meanwhile (new credentials): nothing of this value is saved.
+      this.pendingCookies = undefined;
+      return;
+    }
+    const generation = this.generation;
+    try {
+      await this.gladys.setConfig({ cookies: value });
+    } catch (err) {
+      this.logger.warn(`Saving the rotated cookies failed (tried again later): ${err.message}`);
+      return;
+    }
+    if (generation !== this.generation) {
+      return;
+    }
+    this.storedCookies = value;
+    if (this.pendingCookies === value) {
+      this.pendingCookies = undefined;
+    }
+    this.logger.info('Google rotated some cookies: the configuration was updated');
+  }
+
+  /** What Gladys did not take yet: the rotated cookies, the scene events. */
+  async retryPending() {
+    if (this.pendingCookies !== undefined) {
+      await this.writeCookies();
+    }
+    await this.replayEvents();
   }
 
   /** Keeps the current stop (or none) in /data, tied to the credentials. */
@@ -362,6 +439,7 @@ export class NestProtectApp {
     if (configProblem(this.config)) {
       return;
     }
+    await this.retryPending();
     if (this.blocked === 'session_refused' && this.now() >= this.retryAt) {
       this.logger.info('Nest: trying the session again');
       this.blocked = undefined;
@@ -379,7 +457,7 @@ export class NestProtectApp {
       if (generation !== this.generation || err?.kind === 'aborted') {
         return;
       }
-      await this.failed(err);
+      await this.failed(err, { quick });
     } finally {
       this.client.timeout = undefined;
     }
@@ -396,7 +474,12 @@ export class NestProtectApp {
    * then one long poll. Resolves the delay before the next step.
    */
   async step({ quick, generation }) {
-    if (!this.client.sessionFresh) {
+    // A session about to end is made again, but never sooner than 10 minutes
+    // after the previous one (a refused session is made again in `authorized`).
+    if (
+      !this.client.hasSession ||
+      (!this.client.sessionFresh && this.now() - this.signedInAt >= TIMINGS.signInSpacing)
+    ) {
       await this.signIn();
     }
     if (quick || this.now() - this.launchedAt >= TIMINGS.trueUp) {
@@ -417,6 +500,7 @@ export class NestProtectApp {
       return TIMINGS.trueUp;
     }
     const started = this.now();
+    const before = JSON.stringify(subscription(this.buckets));
     let objects;
     this.abort = new AbortController();
     try {
@@ -435,15 +519,18 @@ export class NestProtectApp {
     if (generation !== this.generation) {
       return undefined;
     }
+    const merged = mergeBuckets(this.buckets, objects);
+    const progressed = JSON.stringify(subscription(merged)) !== before;
     if (objects.length > 0) {
-      await this.apply(mergeBuckets(this.buckets, objects));
+      await this.apply(merged);
     } else {
       // The day counters move without any new bucket.
       this.queueStates();
     }
+    this.gatewayFailures = 0;
     await this.succeeded();
-    // Never a tight loop: empty answers coming back at once slow down.
-    const quickEmpty = objects.length === 0 && this.now() - started < TIMINGS.quickReturn;
+    // Never a tight loop: answers that move no revision, coming back at once, slow down.
+    const quickEmpty = !progressed && this.now() - started < TIMINGS.quickReturn;
     this.quickReturns = quickEmpty ? this.quickReturns + 1 : 0;
     return this.quickReturns >= 3 ? TIMINGS.quickPause : TIMINGS.subscribeGap;
   }
@@ -491,6 +578,10 @@ export class NestProtectApp {
     }
     this.offline = false;
     this.pauseKind = undefined;
+    if (this.memory.pausedUntil !== undefined) {
+      this.memory.pausedUntil = undefined;
+      await this.saveMemory();
+    }
     await this.saveBlock();
     await this.setStatus(true, T.connected(this.detectors.size));
     // Before the long poll, which may stay open for minutes.
@@ -498,7 +589,7 @@ export class NestProtectApp {
     await this.flush();
   }
 
-  async failed(err) {
+  async failed(err, { quick = false } = {}) {
     const reason = errorReason(err);
     const kind = err instanceof NestError ? err.kind : 'unexpected';
     if (kind === 'refused' || kind === 'no_credentials') {
@@ -538,9 +629,18 @@ export class NestProtectApp {
     }
     if (kind === 'gateway') {
       // pynest: "Nest Service error. Updates paused for 2 minutes."
+      this.gatewayFailures += 1;
       this.pauseKind = 'service';
       this.pausedUntil = Math.max(this.pausedUntil, this.now() + TIMINGS.servicePause);
+      await this.savePause();
       this.logger.info(`Nest: ${reason}; long poll again in 2 min`);
+      // One is common; two in a row: the states shown may be old.
+      if (this.gatewayFailures >= 2) {
+        this.offline = true;
+      }
+      if (this.gatewayFailures >= 2 || quick) {
+        await this.setStatus(false, T.unreachable(reason, age(TIMINGS.servicePause)));
+      }
       return;
     }
     const wait = TIMINGS.backoff[Math.min(this.failures, TIMINGS.backoff.length - 1)];
@@ -551,10 +651,18 @@ export class NestProtectApp {
     this.offline = this.failures >= 2;
     this.pauseKind = 'backoff';
     this.pausedUntil = Math.max(this.pausedUntil, this.now() + wait);
+    await this.savePause();
     this.logger.warn(`Nest: ${reason}; next try in ${Math.round(wait / 1000)} s`);
-    if (this.failures >= 2) {
+    // The button always shows what happened.
+    if (this.failures >= 2 || quick) {
       await this.setStatus(false, T.unreachable(reason, age(wait)));
     }
+  }
+
+  /** The end of an error's pause, kept in /data (a restart never reads sooner). */
+  async savePause() {
+    this.memory.pausedUntil = this.pausedUntil;
+    await this.saveMemory();
   }
 
   // --- Gladys ----------------------------------------------------------------
@@ -638,34 +746,40 @@ export class NestProtectApp {
   }
 
   /**
-   * "Smoke detected" / "CO detected": once per rise of the reading to 1 (from
-   * 0, or from unknown: the first read after a start that finds an alarm
-   * fires too, a missed alarm being worse than a repeated one). Never on the
-   * way back to 0, never again while it stays 1.
+   * "Smoke detected" / "CO detected": once per rise of the severity (testing
+   * < warning < emergency), from none or from unknown (the first read after a
+   * start that finds an alarm fires too, a missed alarm being worse than a
+   * repeated one). Never on the way down, never again while it stays.
    */
   async fireAlarms() {
     for (const detector of this.detectors.values()) {
       const before = this.alarms.get(detector.id) ?? {};
       const after = {};
       for (const alarm of ALARMS) {
-        after[alarm.reading] = READINGS[alarm.reading](detector);
-        if (after[alarm.reading] === undefined) {
+        const rank = alarmRank(detector.value[alarm.status]);
+        if (rank === undefined) {
           after[alarm.reading] = before[alarm.reading];
           continue;
         }
-        if (after[alarm.reading] === 1 && before[alarm.reading] !== 1) {
-          await this.sceneEvent(alarm.trigger, {
-            device: deviceIds(this.gladys, detector.id).device,
-            level: alarmLevel(detector.value[alarm.status]),
-            room: detector.label ?? '',
-          });
+        after[alarm.reading] = rank;
+        if (rank > (before[alarm.reading] ?? 0)) {
+          await this.sceneEvent(
+            alarm.trigger,
+            {
+              device: deviceIds(this.gladys, detector.id).device,
+              level: alarmLevel(detector.value[alarm.status]),
+              room: detector.label ?? '',
+              delayed: false,
+            },
+            { detectorId: detector.id, reading: alarm.reading },
+          );
         }
       }
       this.alarms.set(detector.id, after);
     }
   }
 
-  async sceneEvent(key, data) {
+  async sceneEvent(key, data, origin) {
     const now = this.now();
     this.sceneWindow = this.sceneWindow.filter((t) => now - t < MINUTE);
     if (this.sceneWindow.length >= LIMITS.sceneEventsPerMinute) {
@@ -677,7 +791,35 @@ export class NestProtectApp {
     try {
       await this.gladys.publishSceneEvent(key, data);
     } catch (err) {
-      this.logger.warn(`Scene event ${key} not sent: ${err.message}`);
+      // Sent again (with `delayed`) at the next run or reconnection, while the alarm lasts.
+      this.pendingEvents.push({ key, data, at: now, ...origin });
+      this.logger.warn(`Scene event ${key} not sent, kept for later: ${err.message}`);
+    }
+  }
+
+  /** The scene events Gladys did not take, sent again while their alarm lasts (15 min at most). */
+  async replayEvents() {
+    if (this.pendingEvents.length === 0) {
+      return;
+    }
+    const now = this.now();
+    const list = this.pendingEvents;
+    this.pendingEvents = [];
+    for (const event of list) {
+      const detector = this.detectors.get(event.detectorId);
+      if (
+        now - event.at > TIMINGS.sceneEventMaxAge ||
+        !detector ||
+        READINGS[event.reading](detector) !== 1
+      ) {
+        continue;
+      }
+      try {
+        await this.gladys.publishSceneEvent(event.key, { ...event.data, delayed: true });
+        this.logger.info(`Scene event ${event.key} sent late`);
+      } catch {
+        this.pendingEvents.push(event);
+      }
     }
   }
 
@@ -773,7 +915,9 @@ export class NestProtectApp {
     this.sessionRetries = 0;
     this.pausedUntil = 0;
     this.pauseKind = undefined;
+    this.memory.pausedUntil = undefined;
     await this.saveBlock();
+    await this.saveMemory();
     this.clearTimer();
     // The long poll under way is cut, then one sign-in if needed and one full read.
     this.abort?.abort();

@@ -79,7 +79,7 @@ export function fakeNest() {
     /** Set-Cookie headers of the next issueToken answers. */
     rotate: undefined,
     sessionTransport: TRANSPORT,
-    /** One-shot answers or errors: { match(request), answer?, error? } */
+    /** One-shot answers or errors: { match(request), status?, body?, headers?, error?, wait? } */
     queue: [],
     /** The long polls waiting for a change. */
     waiting: [],
@@ -151,6 +151,9 @@ export function fakeNest() {
       const i = server.queue.findIndex((q) => q.match(request));
       if (i >= 0) {
         const [one] = server.queue.splice(i, 1);
+        if (one.wait) {
+          await one.wait;
+        }
         if (one.error) {
           throw one.error;
         }

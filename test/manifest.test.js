@@ -131,13 +131,21 @@ test('the scene triggers: keys, the device filter, and exactly the data the app 
   for (const trigger of manifest.scene_triggers) {
     assert.deepEqual(
       trigger.fields.map((f) => [f.key, f.type, f.source]),
-      [['device', 'select', 'devices']],
+      [
+        ['device', 'select', 'devices'],
+        ['level', 'select', undefined],
+      ],
+    );
+    assert.deepEqual(
+      trigger.fields[1].options.map((o) => o.value),
+      ['testing', 'warning', 'emergency'],
     );
     assert.deepEqual(
       trigger.variables.map((v) => [v.key, v.type]),
       [
         ['level', 'string'],
         ['room', 'string'],
+        ['delayed', 'boolean'],
       ],
     );
   }

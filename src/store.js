@@ -10,7 +10,7 @@
 //     its spaced retries), tied to a salted fingerprint of the issue_token
 //     and the cookies, so a restart never tries again what was refused, and
 //     new cookies do;
-//   - the end of a 429 pause.
+//   - the end of a 429 pause, and of any other pause (an error's backoff).
 // The file is readable by the container user only (0600).
 // -----------------------------------------------------------------------------
 
@@ -95,6 +95,7 @@ export function normalizeMemory(raw, now = Date.now()) {
     salt: typeof raw?.salt === 'string' && /^[0-9a-f]{32}$/.test(raw.salt) ? raw.salt : null,
     session: session(raw),
     rateLimitedUntil: capped(raw?.rateLimitedUntil, TIMINGS.rateLimitMax),
+    pausedUntil: capped(raw?.pausedUntil, TIMINGS.rateLimitMax),
     block:
       BLOCKS.has(block?.kind) && HEX16.test(block?.fingerprint ?? '')
         ? {

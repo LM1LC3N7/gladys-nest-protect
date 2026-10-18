@@ -96,12 +96,18 @@ pas même dans un message d'aide ou un ticket.
 ## Déclencheurs de scène
 
 - **Fumée détectée (Nest Protect)** et **CO détecté (Nest Protect)** : une
-  fois quand la valeur passe à 1 (y compris pour un test du détecteur), pas
-  de nouvel événement tant qu'elle reste à 1, rien quand elle revient à 0.
-  Au démarrage de l'intégration, une alarme déjà en cours déclenche une fois.
-- Filtre : le détecteur (facultatif). Variables : `level` (`warning`,
-  `emergency`, `testing`, `unknown`, d'après ha-nest-protect) et `room` (la
-  pièce).
+  fois à chaque **montée du niveau** (test < alerte < urgence) : un test,
+  puis une alerte, puis une urgence donnent trois événements. Jamais à la
+  descente, rien tant que le niveau reste le même, rien au retour à 0. Au
+  démarrage de l'intégration, une alarme déjà en cours déclenche une fois.
+- Filtres (facultatifs) : le détecteur, et le niveau (`testing`, `warning`,
+  `emergency`). Variables : `level` (`testing`, `warning`, `emergency`, ou
+  `unknown` pour un code inconnu, d'après ha-nest-protect), `room` (la pièce)
+  et `delayed`.
+- **Un événement peut arriver en retard** : si Gladys ne l'a pas pris (Gladys
+  redémarre, par exemple), l'intégration le renvoie à la lecture suivante ou
+  à la reconnexion, tant que l'alarme dure et au plus 15 minutes après ; il
+  porte alors `delayed` = vrai.
 - Rappel : **pas un système d'alarme certifié**. Une scène peut prévenir,
   allumer des lumières ou couper une ventilation, mais ne remplace ni
   l'alarme du détecteur ni l'appel aux secours.
@@ -134,7 +140,13 @@ de suite). Une lecture complète est refaite toutes les heures.
   ouverte : 2 minutes de pause (comme ha-nest-protect).
 - Un détecteur hors ligne pour Nest est marqué « injoignable » sur sa carte.
 - Pendant une panne, **les valeurs affichées peuvent être anciennes** : une
-  fumée apparue pendant la panne n'est vue qu'au retour de la connexion.
+  fumée apparue pendant la panne n'est vue qu'au retour de la connexion, et
+  **une alarme qui monte puis redescend pendant la panne n'est jamais vue**
+  (ni état, ni événement de scène).
+- Plusieurs 502/504 de suite de la requête ouverte : l'intégration passe en
+  « Nest injoignable » et les cartes en « injoignable » dès le deuxième.
+- Une pause après une erreur est gardée dans `/data` : un redémarrage ne
+  relit pas plus tôt.
 
 ## Limites
 
@@ -154,10 +166,13 @@ de suite). Une lecture complète est refaite toutes les heures.
 L'intégration garde dans `/data/nest-protect-state.json` (lisible par son
 seul conteneur) : la session Nest (son jeton d'accès, l'identifiant
 utilisateur Nest, sa fin et l'adresse du serveur de mises à jour), le seul
-jeton nécessaire pour ne pas redemander à Google à chaque redémarrage ; une
+jeton nécessaire pour ne pas redemander à Google à chaque redémarrage.
+**Ce jeton donne accès à tout votre compte Nest** (pas seulement aux
+détecteurs) tant qu'il est valide : protégez les sauvegardes du dossier
+`/data` de Gladys comme un mot de passe. Aussi : une
 empreinte salée de l'issue_token (le compte de cette session) ; un arrêt
 (cookies refusés, session refusée et son prochain essai) lié à une empreinte
-salée de l'issue_token et des cookies ; la fin d'une pause 429. **Jamais**
+salée de l'issue_token et des cookies ; la fin d'une pause (429 ou erreur). **Jamais**
 l'issue_token, les cookies, ni votre e-mail. Les journaux n'en contiennent
 aucun. Rien n'est envoyé ailleurs qu'à Google (`accounts.google.com`,
 `nestauthproxyservice-pa.googleapis.com`) et Nest (`home.nest.com` et ses

@@ -40,7 +40,12 @@ export function validIssueToken(value) {
   }
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' && url.hostname === 'accounts.google.com' && url.search !== '';
+    return (
+      url.protocol === 'https:' &&
+      url.hostname === 'accounts.google.com' &&
+      url.pathname === '/o/oauth2/iframerpc' &&
+      url.searchParams.get('action') === 'issueToken'
+    );
   } catch {
     return false;
   }
@@ -52,7 +57,8 @@ export function validCookies(value) {
     value.length > 100 &&
     value.length <= LIMITS.cookies &&
     value.includes('=') &&
-    !/[\r\n]/.test(value) &&
+    // Visible ASCII and spaces only: a header value, nothing a request could be split on.
+    /^[\x20-\x7e]+$/.test(value) &&
     GOOGLE_MARKERS.some((marker) => value.includes(marker))
   );
 }
