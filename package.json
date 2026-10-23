@@ -1,6 +1,6 @@
 {
   "name": "gladys-nest-protect",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Google Nest Protect smoke and CO alarms for Gladys Assistant, read only, through the unofficial Nest API (not a certified alarm system).",
   "type": "module",

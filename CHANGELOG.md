@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-23
+
 ## [0.1.1] - 2026-10-18
 
 ### Added
@@ -68,5 +70,6 @@ the notes of the version's GitHub Release.
   pause kept in `/data` (a 429 pause still holds); scene events sent again
   count in the 60-a-minute window.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-nest-protect/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-nest-protect/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/LM1LC3N7/gladys-nest-protect/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LM1LC3N7/gladys-nest-protect/releases/tag/v0.1.1
